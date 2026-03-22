@@ -119,6 +119,9 @@ func (m *Manager) Suspend() error {
 	if err := m.Builder.Suspend(); err != nil {
 		return err
 	}
+	if err := os.WriteFile("/var/lib/comin/suspended", []byte("Comin is currently suspended"), 0644); err != nil {
+		return fmt.Errorf("can't write supend file to state dir")
+	}
 	m.deployer.Suspend()
 	m.isSuspended = true
 	m.prometheus.SetHostInfo(m.needToReboot, m.isSuspended)
@@ -133,6 +136,9 @@ func (m *Manager) Resume(ctx context.Context) error {
 	}
 	if err := m.Builder.Resume(ctx); err != nil {
 		return err
+	}
+	if err := os.Remove("/var/lib/comin/suspended"); err != nil {
+		return fmt.Errorf("can't remove supend file from state dir")
 	}
 	m.deployer.Resume()
 	m.isSuspended = false
@@ -228,6 +234,12 @@ func (m *Manager) Run(ctx context.Context) {
 	if lastDpl != nil {
 		m.needToReboot = m.executor.NeedToReboot(lastDpl.Generation.OutPath, lastDpl.Operation)
 	}
+	if _, err := os.Stat("/var/lib/comin/suspended"); err != nil {
+		m.deployer.Suspend()
+		m.isSuspended = true
+		m.broker.Publish(&protobuf.Event{Type: &protobuf.Event_Suspend_{Suspend: &protobuf.Event_Suspend{}}})
+	}
+
 	m.prometheus.SetHostInfo(m.needToReboot, m.isSuspended)
 	m.prometheus.SetNeedToReboot(m.needToReboot)
 	m.prometheus.SetIsSuspended(m.isSuspended)
